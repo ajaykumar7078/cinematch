@@ -1,14 +1,18 @@
 """Data loader for the TMDB 5000 Movie Dataset."""
-import json
+import json, gzip
 import pandas as pd
 import os
 
-DATA_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'tmdb_5000_movies.csv')
+DATA_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'tmdb_5000_movies.csv.gz')
 
 def load_movies(path=None):
     if path is None:
         path = DATA_PATH
-    df = pd.read_csv(path)
+    if path.endswith('.gz'):
+        with gzip.open(path, 'rt', encoding='utf-8') as f:
+            df = pd.read_csv(f)
+    else:
+        df = pd.read_csv(path)
     df['genres_list'] = df['genres'].apply(_parse_genres)
     df['keywords_list'] = df['keywords'].apply(_parse_keywords)
     df['genres_str'] = df['genres_list'].apply(lambda g: '|'.join(g) if g else '')

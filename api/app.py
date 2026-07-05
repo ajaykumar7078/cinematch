@@ -12,7 +12,7 @@ app = Flask(__name__)
 CORS(app)
 
 print("Loading TMDB 5000 dataset...")
-DATA_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'tmdb_5000_movies.csv')
+DATA_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'tmdb_5000_movies.csv.gz')
 df = load_movies(DATA_PATH)
 print(f"Loaded {len(df)} movies.")
 
@@ -33,17 +33,7 @@ def home():
         "total_movies": len(df),
         "available_genres": ALL_GENRES,
         "endpoints": {
-            "/": "GET - API info",
-            "/movies": "GET - Search/list movies",
-            "/movies/<title>": "GET - Movie details",
-            "/genres": "GET - List all genres",
-            "/genres/<genre>/top": "GET - Top rated in genre",
-            "/genres/<genre>/popular": "GET - Most popular in genre",
-            "/genres/<genre>/latest": "GET - Latest releases",
-            "/genres/<genre>/gems": "GET - Underrated gems",
-            "/genres/<genre>/stats": "GET - Genre statistics",
-            "/multi-genre": "POST - Multi-genre search",
-            "/recommend": "POST - Similar movies"
+            "/": "GET - API info","/movies": "GET - Search/list movies","/movies/<title>": "GET - Movie details","/genres": "GET - List all genres","/genres/<genre>/top": "GET - Top rated in genre","/genres/<genre>/popular": "GET - Most popular in genre","/genres/<genre>/latest": "GET - Latest releases","/genres/<genre>/gems": "GET - Underrated gems","/genres/<genre>/stats": "GET - Genre statistics","/multi-genre": "POST - Multi-genre search","/recommend": "POST - Similar movies"
         }
     })
 
@@ -52,24 +42,20 @@ def list_movies():
     q = request.args.get("q", "").strip().lower()
     page = int(request.args.get("page", 1))
     per_page = min(int(request.args.get("per_page", 50)), 200)
-    if q:
-        filtered = df[df['title'].str.lower().str.contains(q, na=False)]
-    else:
-        filtered = df
+    if q: filtered = df[df['title'].str.lower().str.contains(q, na=False)]
+    else: filtered = df
     total = len(filtered)
     start = (page - 1) * per_page
     end = start + per_page
-    page_movies = filtered.iloc[start:end]
     movies_data = []
-    for _, row in page_movies.iterrows():
+    for _, row in filtered.iloc[start:end].iterrows():
         movies_data.append({"title": row["title"], "genres": row["genres_str"], "vote_average": float(row["vote_average"]), "vote_count": int(row["vote_count"]), "release_year": int(row["release_year"]), "popularity": float(row["popularity"])})
-    return jsonify({"total": total, "page": page, "per_page": per_page, "total_pages": (total + per_page - 1) // per_page, "movies": movies_data})
+    return jsonify({"total": total, "page": page, "per_page": per_page, "total_pages": (total+per_page-1)//per_page, "movies": movies_data})
 
 @app.route("/movies/<path:title>", methods=["GET"])
 def movie_detail(title):
     movie = get_movie_by_title(df, title)
-    if movie is None:
-        return jsonify({"error": f"Movie '{title}' not found"}), 404
+    if movie is None: return jsonify({"error": f"Movie '{title}' not found"}), 404
     return jsonify({"title": movie["title"], "genres": movie["genres_str"], "overview": movie["overview"], "vote_average": float(movie["vote_average"]), "vote_count": int(movie["vote_count"]), "popularity": float(movie["popularity"]), "release_date": movie["release_date"], "release_year": int(movie["release_year"])})
 
 @app.route("/genres", methods=["GET"])
@@ -77,72 +63,48 @@ def list_genres():
     genre_data = []
     for genre in ALL_GENRES:
         mask = df['genres_str'].str.contains(genre, case=False, na=False)
-        count = int(mask.sum())
-        avg_rating = round(df[mask]['vote_average'].mean(), 2)
-        genre_data.append({"name": genre, "movie_count": count, "avg_rating": avg_rating})
+        genre_data.append({"name": genre, "movie_count": int(mask.sum()), "avg_rating": round(df[mask]['vote_average'].mean(), 2)})
     return jsonify({"genres": sorted(genre_data, key=lambda x: -x['movie_count'])})
 
 @app.route("/genres/<genre>/top", methods=["GET"])
 def genre_top(genre):
-    min_votes = int(request.args.get("min_votes", 100))
-    top_n = int(request.args.get("top_n", 20))
-    results = explorer.top_by_genre(genre, min_votes=min_votes, top_n=top_n)
-    return jsonify({"genre": genre, "mode": "top_rated", "count": len(results), "movies": results})
+    return jsonify({"genre": genre, "mode": "top_rated", "movies": explorer.top_by_genre(genre, top_n=int(request.args.get("top_n",20)))})
 
 @app.route("/genres/<genre>/popular", methods=["GET"])
 def genre_popular(genre):
-    top_n = int(request.args.get("top_n", 20))
-    results = explorer.popular_by_genre(genre, top_n=top_n)
-    return jsonify({"genre": genre, "mode": "popular", "count": len(results), "movies": results})
+    return jsonify({"genre": genre, "mode": "popular", "movies": explorer.popular_by_genre(genre, top_n=int(request.args.get("top_n",20)))})
 
 @app.route("/genres/<genre>/latest", methods=["GET"])
 def genre_latest(genre):
-    top_n = int(request.args.get("top_n", 20))
-    results = explorer.latest_by_genre(genre, top_n=top_n)
-    return jsonify({"genre": genre, "mode": "latest", "count": len(results), "movies": results})
+    return jsonify({"genre": genre, "mode": "latest", "movies": explorer.latest_by_genre(genre, top_n=int(request.args.get("top_n",20)))})
 
 @app.route("/genres/<genre>/gems", methods=["GET"])
 def genre_gems(genre):
-    top_n = int(request.args.get("top_n", 15))
-    results = explorer.underrated_gems(genre, top_n=top_n)
-    return jsonify({"genre": genre, "mode": "underrated_gems", "count": len(results), "movies": results})
+    return jsonify({"genre": genre, "mode": "gems", "movies": explorer.underrated_gems(genre, top_n=int(request.args.get("top_n",15)))})
 
 @app.route("/genres/<genre>/stats", methods=["GET"])
 def genre_stats(genre):
-    stats = explorer.genre_stats(genre)
-    return jsonify({"genre": genre, "stats": stats})
+    return jsonify({"genre": genre, "stats": explorer.genre_stats(genre)})
 
 @app.route("/multi-genre", methods=["POST"])
 def multi_genre():
     data = request.get_json()
-    if not data or "genres" not in data:
-        return jsonify({"error": "Please provide a 'genres' list"}), 400
-    genres = data["genres"]
-    sort_by = data.get("sort_by", "vote_average")
-    top_n = int(data.get("top_n", 20))
-    results = explorer.multi_genre_search(genres, sort_by=sort_by, top_n=top_n)
-    return jsonify({"genres": genres, "mode": "multi_genre", "count": len(results), "movies": results})
+    if not data or "genres" not in data: return jsonify({"error": "Provide genres list"}), 400
+    return jsonify({"genres": data["genres"], "movies": explorer.multi_genre_search(data["genres"], sort_by=data.get("sort_by","vote_average"), top_n=int(data.get("top_n",20)))})
 
 @app.route("/recommend", methods=["POST"])
 def recommend():
     data = request.get_json()
-    if not data or "title" not in data:
-        return jsonify({"error": "Please provide a 'title' in the request body"}), 400
-    title = data["title"]
-    top_n = int(data.get("top_n", 10))
-    movie = get_movie_by_title(df, title)
-    if movie is None:
-        return jsonify({"error": f"Movie '{title}' not found.", "suggestions": get_all_titles(df)[:10]}), 404
-    recommendations = recommender.recommend(df, movie["title"], top_n=top_n)
-    return jsonify({"input_title": movie["title"], "input_genres": movie["genres_str"], "input_year": int(movie["release_year"]), "input_rating": float(movie["vote_average"]), "count": len(recommendations), "recommendations": format_recommendations_json(recommendations)})
+    if not data or "title" not in data: return jsonify({"error": "Provide title"}), 400
+    movie = get_movie_by_title(df, data["title"])
+    if movie is None: return jsonify({"error": f"Movie '{data['title']}' not found"}), 404
+    recs = recommender.recommend(df, movie["title"], top_n=int(data.get("top_n",10)))
+    return jsonify({"input_title": movie["title"], "input_genres": movie["genres_str"], "input_year": int(movie["release_year"]), "input_rating": float(movie["vote_average"]), "count": len(recs), "recommendations": format_recommendations_json(recs)})
 
 @app.errorhandler(404)
-def not_found(e):
-    return jsonify({"error": "Endpoint not found"}), 404
-
+def not_found(e): return jsonify({"error": "Not found"}), 404
 @app.errorhandler(500)
-def server_error(e):
-    return jsonify({"error": "Internal server error", "message": str(e)}), 500
+def server_error(e): return jsonify({"error": "Server error", "message": str(e)}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
